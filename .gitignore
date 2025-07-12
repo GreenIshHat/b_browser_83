@@ -1,0 +1,35 @@
+/target
+
+# Rust/Cargo
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs, temp, coverage
+*.log
+*.tmp
+*.bak
+*.old
+*.out
+*.gcno
+*.gcda
+
+# Misc
+node_modules/
+
