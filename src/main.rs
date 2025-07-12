@@ -1,4 +1,3 @@
-use rayon::prelude::*;
 use reqwest::blocking::get;
 use feed_rs::parser;
 use scraper::{Html, Selector};
@@ -32,23 +31,6 @@ fn try_parse_feed(xml: &str) -> Option<Vec<(String, String)>> {
     }
 }
 
-fn extract_text(html: &str) -> (String, Vec<String>) {
-    let doc = Html::parse_document(html);
-    let sel_p = Selector::parse("p").unwrap();
-    let sel_a = Selector::parse("a").unwrap();
-
-    let text = doc.select(&sel_p)
-        .map(|el| el.text().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let links = doc.select(&sel_a)
-        .filter_map(|el| el.value().attr("href").map(|l| l.to_string()))
-        .collect();
-
-    (text, links)
-}
-
 fn normalize_url(url: &str) -> String {
     if url.starts_with("http://") || url.starts_with("https://") {
         url.to_string()
@@ -57,10 +39,19 @@ fn normalize_url(url: &str) -> String {
     }
 }
 
+fn resolve_url(base: &str, link: &str) -> String {
+    if link.starts_with("http") {
+        link.to_string()
+    } else {
+        url::Url::parse(base)
+            .and_then(|b| b.join(link))
+            .map(|u| u.to_string())
+            .unwrap_or_else(|_| link.to_string())
+    }
+}
 
 fn main() {
     let mut current_url = normalize_url(&prompt("Enter feed or HTML URL: "));
-
 
     loop {
         println!("\n[+] Fetching: {}", current_url);
@@ -87,61 +78,69 @@ fn main() {
                     continue;
                 }
             }
-            println!("Invalid selection, exiting.");
+            println!("Invalid selection, try again.");
+            continue;
+        }
+
+        // HTML page flow
+        println!("--- HTML PAGE ---");
+        let doc = Html::parse_document(&body);
+        let sel_p = Selector::parse("p").unwrap();
+        let sel_a = Selector::parse("a").unwrap();
+
+        // Find the biggest <p> or text block
+        let mut biggest = String::new();
+        for el in doc.select(&sel_p) {
+            let t = el.text().collect::<String>().trim().to_string();
+            if t.len() > biggest.len() {
+                biggest = t;
+            }
+        }
+        if biggest.is_empty() {
+            println!("(No significant <p> text found.)");
+        } else {
+            println!("--- Main Text ---\n{}\n", biggest);
+        }
+
+        // List all links, paginated
+        let links: Vec<String> = doc.select(&sel_a)
+            .filter_map(|el| el.value().attr("href").map(|l| l.to_string()))
+            .collect();
+
+        if links.is_empty() {
+            println!("[*] No links found. Exiting.");
             break;
         }
 
-// ... inside HTML handling block ...
-println!("--- HTML PAGE ---");
-let (text, links) = extract_text(&body);
-println!("--- Content ---\n{}\n", text);
-
-if links.is_empty() {
-    println!("[*] No links found. Exiting.");
-    break;
-}
-
-// Fetch content lengths in parallel
-let mut links_with_len: Vec<_> = links.par_iter().map(|url| {
-    let abs = if url.starts_with("http") {
-        url.clone()
-    } else {
-        url::Url::parse(&current_url).and_then(|base| base.join(url)).map(|u| u.to_string()).unwrap_or(url.clone())
-    };
-    let len = fetch_url(&abs).ok().map(|body| body.len()).unwrap_or(0);
-    (abs, len)
-}).collect();
-
-// Sort links by length, descending
-links_with_len.sort_by(|a, b| b.1.cmp(&a.1));
-
-// Paging
-let page_size = 10;
-let mut page = 0;
-loop {
-    let start = page * page_size;
-    let end = usize::min(start + page_size, links_with_len.len());
-    println!("--- LINKS ON PAGE (sorted by content length) ---");
-    for (i, (url, len)) in links_with_len[start..end].iter().enumerate() {
-        println!("[{}] {} (size: {})", i + 1, url, len);
-    }
-    if end < links_with_len.len() {
-        println!("[n] Next page");
-    }
-    println!("[q] Quit");
-    let input = prompt("Pick a link number, 'n' for next, or 'q' to quit: ");
-    if input == "q" { break; }
-    if input == "n" && end < links_with_len.len() {
-        page += 1;
-        continue;
-    }
-    if let Ok(n) = input.parse::<usize>() {
-        if n > 0 && n <= end - start {
-            current_url = links_with_len[start + n - 1].0.clone();
-            break;
+        let page_size = 10;
+        let mut page = 0;
+        loop {
+            let start = page * page_size;
+            let end = usize::min(start + page_size, links.len());
+            println!("--- LINKS ON PAGE ---");
+            for (i, url) in links[start..end].iter().enumerate() {
+                let abs = resolve_url(&current_url, url);
+                println!("[{}] {}", i + 1, abs);
+            }
+            if end < links.len() {
+                println!("[n] Next page");
+            }
+            println!("[q] Quit");
+            let input = prompt("Pick a link number, 'n' for next, or 'q' to quit: ");
+            if input == "q" { return; }
+            if input == "n" && end < links.len() {
+                page += 1;
+                continue;
+            }
+            if let Ok(n) = input.parse::<usize>() {
+                if n > 0 && n <= end - start {
+                    let abs = resolve_url(&current_url, &links[start + n - 1]);
+                    current_url = abs;
+                    break;
+                }
+            }
+            println!("Invalid input, try again.");
         }
     }
-    println!("Invalid input, try again.");
 }
-
 
