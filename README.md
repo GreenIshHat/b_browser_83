@@ -18,3 +18,27 @@
 ```sh
 cargo run --release
 # or use the binary in target/release/b_browser_83
+
+    Enter a feed URL (e.g. https://meneame.net/rss) or HTML page.
+
+    For feeds, select an article by number.
+
+    For HTML, review main content, then choose a link (1–10, or next page).
+
+    Repeat; hit q to quit any time.
+```
+
+
+Next Steps / TODO
+
+ratatui TUI for scrollable, interactive UI
+
+Add notes/bookmarks support
+
+Smarter article parsing (readability)
+
+    Export session to Markdown
+
+No data leaves your machine. No analytics. Pure browsing.
+
+© GreenIshHat
